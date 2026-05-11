@@ -1,0 +1,74 @@
+# Reference GitHub Actions workflow for CCExtractor macOS testing.
+#
+# Final home: .github/workflows/mac-tests.yml in the CCExtractor/ccextractor
+# repository (NOT this sample-platform repo). Kept here as part of the
+# WP7 scaffolding so the full Mac story reviews together.
+#
+# Two jobs:
+#   1. build-hosted: GitHub-hosted macos-latest runner — primary path, free for OSS.
+#   2. build-self-hosted: gated by repository_dispatch so it runs only when
+#      the maintainer explicitly triggers extended testing on their Mac mini.
+
+name: macOS tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  repository_dispatch:
+    types: [mac-extended-tests]
+  workflow_dispatch:
+
+env:
+  REPORT_URL: ${{ secrets.SAMPLE_PLATFORM_REPORT_URL }}
+
+jobs:
+  build-hosted:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [baseline, ocr]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install brew dependencies
+        run: |
+          brew install autoconf automake libtool pkg-config cmake \
+                       gpac tesseract leptonica ffmpeg utf8proc
+
+      - name: Install Rust toolchain (MSRV 1.87.0)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build CCExtractor
+        env:
+          CCX_REPO: ${{ github.workspace }}
+          BUILD_FLAVOR: ${{ matrix.flavor }}
+        # Path resolves against the sample-platform repo at deploy time.
+        # Adjust if the script is vendored into CCExtractor instead.
+        run: ./mac/build.command ${{ matrix.flavor == 'ocr' && 'OCR' || '' }}
+
+      - name: Verify binary
+        run: |
+          ./mac/ccextractor --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ccextractor-mac-${{ matrix.flavor }}
+          path: mac/ccextractor
+          retention-days: 7
+
+  build-self-hosted:
+    if: github.event_name == 'repository_dispatch'
+    runs-on: [self-hosted, macOS, ARM64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build CCExtractor (full)
+        run: ./mac/build.command OCR -hardsubx
+      - name: Run regression tests
+        # Placeholder for WP7 Week 11 — wire up ccextractortester here
+        # against samples downloaded from the sample-platform's GCS bucket.
+        run: |
+          echo "TODO(WP7): invoke ccextractortester with sample-platform-provided test XML"
+          ./mac/ccextractor --version
